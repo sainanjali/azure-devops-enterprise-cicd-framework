@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Build outputs
+dist/
+build/
+*.tar.gz
+
+# Coverage and test artifacts
+coverage/
+*.xml
+*.json
+!templates/**/*.json
+
+# Environment variables & secrets
+.env
+*.local
+credentials.json
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  azure-devops-agent-01:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: azp-agent-linux-01
+    restart: always
+    environment:
+      - AZP_URL=https://dev.azure.com/your-enterprise-org
+      - AZP_TOKEN=your-personal-access-token
+      - AZP_POOL=Self-Hosted-Linux-Pool
+      - AZP_AGENT_NAME=azp-linux-worker-01
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent-work-01:/azp/_work
+
+  azure-devops-agent-02:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: azp-agent-linux-02
+    restart: always
+    environment:
+      - AZP_URL=https://dev.azure.com/your-enterprise-org
+      - AZP_TOKEN=your-personal-access-token
+      - AZP_POOL=Self-Hosted-Linux-Pool
+      - AZP_AGENT_NAME=azp-linux-worker-02
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent-work-02:/azp/_work
+
+volumes:
+  agent-work-01:
+  agent-work-02:

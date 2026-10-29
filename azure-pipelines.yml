@@ -1,0 +1,112 @@
+trigger:
+  branches:
+    include:
+      - main
+      - releases/*
+  paths:
+    exclude:
+      - docs/*
+      - README.md
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - group: "vg-global-enterprise"
+  - name: azureServiceConnection
+    value: "sc-azure-subscription-enterprise"
+  - name: containerRegistry
+    value: "acrextenterprise.azurecr.io"
+  - name: imageRepository
+    value: "platform/web-service"
+  - name: dockerfilePath
+    value: "$(Build.SourcesDirectory)/src/Dockerfile"
+  - name: tag
+    value: "$(Build.BuildId)"
+
+stages:
+  # ==========================================
+  # STAGE 1: BUILD, LINT & UNIT TESTS
+  # ==========================================
+  - stage: BuildAndValidate
+    displayName: "Stage 1: Build & Validate"
+    jobs:
+      - template: templates/jobs/build-and-test.yml
+        parameters:
+          buildConfiguration: "Release"
+          runTests: true
+
+  # ==========================================
+  # STAGE 2: SHIFT-LEFT DEVSECOPS COMPLIANCE
+  # ==========================================
+  - stage: DevSecOpsGates
+    displayName: "Stage 2: DevSecOps Gates"
+    dependsOn: BuildAndValidate
+    condition: succeeded()
+    jobs:
+      - job: SecurityScanning
+        displayName: "Secret & IaC Compliance Scans"
+        pool:
+          name: "Self-Hosted-Linux-Pool"
+        steps:
+          - template: templates/steps/gitleaks-scan.yml
+          - template: templates/steps/iac-compliance.yml
+
+  # ==========================================
+  # STAGE 3: CONTAINERIZATION & ACR RELEASE
+  # ==========================================
+  - stage: Containerize
+    displayName: "Stage 3: Containerize & Publish"
+    dependsOn: DevSecOpsGates
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - template: templates/jobs/docker-build-push.yml
+        parameters:
+          azureSubscriptionEndpoint: $(azureServiceConnection)
+          azureContainerRegistry: $(containerRegistry)
+          repositoryName: $(imageRepository)
+          imageTag: $(tag)
+
+  # ==========================================
+  # STAGE 4: DEVELOPMENT DEPLOYMENT
+  # ==========================================
+  - stage: DeployDev
+    displayName: "Stage 4: Deploy to Development"
+    dependsOn: Containerize
+    condition: succeeded()
+    jobs:
+      - template: templates/deployments/environment-deploy.yml
+        parameters:
+          environmentName: "Development"
+          serviceConnection: $(azureServiceConnection)
+          imageTag: $(tag)
+
+  # ==========================================
+  # STAGE 5: STAGING DEPLOYMENT
+  # ==========================================
+  - stage: DeployStaging
+    displayName: "Stage 5: Deploy to Staging"
+    dependsOn: DeployDev
+    condition: succeeded()
+    jobs:
+      - template: templates/deployments/environment-deploy.yml
+        parameters:
+          environmentName: "Staging"
+          serviceConnection: $(azureServiceConnection)
+          imageTag: $(tag)
+
+  # ==========================================
+  # STAGE 6: PRODUCTION DEPLOYMENT (APPROVAL GATED)
+  # ==========================================
+  - stage: DeployProduction
+    displayName: "Stage 6: Deploy to Production"
+    dependsOn: DeployStaging
+    condition: succeeded()
+    jobs:
+      - template: templates/deployments/environment-deploy.yml
+        parameters:
+          environmentName: "Production"
+          serviceConnection: $(azureServiceConnection)
+          imageTag: $(tag)

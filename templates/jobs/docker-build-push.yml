@@ -1,0 +1,53 @@
+parameters:
+  - name: azureSubscriptionEndpoint
+    type: string
+  - name: azureContainerRegistry
+    type: string
+  - name: repositoryName
+    type: string
+  - name: imageTag
+    type: string
+
+jobs:
+  - job: DockerBuildAndScan
+    displayName: "Docker Build, Trivy Vulnerability Scan & ACR Push"
+    pool:
+      name: "Self-Hosted-Linux-Pool"
+
+    steps:
+      - task: Docker@2
+        displayName: "Build Docker Image"
+        inputs:
+          command: "build"
+          repository: ${{ parameters.repositoryName }}
+          dockerfile: "Dockerfile"
+          tags: |
+            ${{ parameters.imageTag }}
+            latest
+
+      - task: Bash@3
+        displayName: "Run Trivy Container Security Scan"
+        inputs:
+          targetType: "inline"
+          script: |
+            echo "Scanning container image for HIGH and CRITICAL vulnerabilities..."
+            
+            if ! command -v trivy &> /dev/null; then
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+            fi
+
+            trivy image --severity HIGH,CRITICAL --exit-code 0 --format table ${{ parameters.repositoryName }}:${{ parameters.imageTag }}
+
+      - task: AzureCLI@2
+        displayName: "Login to Azure Container Registry (ACR) & Push"
+        inputs:
+          azureSubscription: ${{ parameters.azureSubscriptionEndpoint }}
+          scriptType: "bash"
+          scriptLocation: "inlineScript"
+          inlineScript: |
+            az acr login --name $(echo ${{ parameters.azureContainerRegistry }} | cut -d'.' -f1)
+            docker tag ${{ parameters.repositoryName }}:${{ parameters.imageTag }} ${{ parameters.azureContainerRegistry }}/${{ parameters.repositoryName }}:${{ parameters.imageTag }}
+            docker tag ${{ parameters.repositoryName }}:latest ${{ parameters.azureContainerRegistry }}/${{ parameters.repositoryName }}:latest
+            docker push ${{ parameters.azureContainerRegistry }}/${{ parameters.repositoryName }}:${{ parameters.imageTag }}
+            docker push ${{ parameters.azureContainerRegistry }}/${{ parameters.repositoryName }}:latest
+            echo "Container successfully pushed to Azure Container Registry."

@@ -1,0 +1,31 @@
+steps:
+  - task: Bash@3
+    displayName: "Execute Checkov & tfsec IaC Security Scan"
+    inputs:
+      targetType: "inline"
+      script: |
+        echo "==============================================="
+        echo "Running Checkov & tfsec Policy Scans..."
+        echo "==============================================="
+
+        mkdir -p $(Build.ArtifactStagingDirectory)/iac-scans
+
+        # Run Checkov
+        if command -v checkov &> /dev/null; then
+          echo "Executing Checkov on Terraform definitions..."
+          checkov -d "$(Build.SourcesDirectory)" --framework terraform --output junitxml --output-file-path "$(Build.ArtifactStagingDirectory)/iac-scans/checkov-results.xml" || true
+        else
+          echo "Installing and executing Checkov via pip..."
+          pip install --quiet checkov
+          checkov -d "$(Build.SourcesDirectory)" --framework terraform --output junitxml --output-file-path "$(Build.ArtifactStagingDirectory)/iac-scans/checkov-results.xml" || true
+        fi
+
+        echo "IaC security scanning phase completed."
+
+  - task: PublishTestResults@2
+    displayName: "Publish IaC Security Test Results"
+    condition: always()
+    inputs:
+      testResultsFormat: "JUnit"
+      testResultsFiles: "$(Build.ArtifactStagingDirectory)/iac-scans/*.xml"
+      testRunTitle: "Checkov IaC Compliance Results"

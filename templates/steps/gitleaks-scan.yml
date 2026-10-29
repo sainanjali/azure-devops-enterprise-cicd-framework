@@ -1,0 +1,32 @@
+steps:
+  - task: Bash@3
+    displayName: "Execute Gitleaks Secret Detection"
+    inputs:
+      targetType: "inline"
+      script: |
+        echo "==============================================="
+        echo "Running Gitleaks Secret Detection..."
+        echo "==============================================="
+        
+        if ! command -v gitleaks &> /dev/null; then
+          echo "Installing Gitleaks binary..."
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
+        fi
+
+        # Run Gitleaks protecting against API keys, passwords, and Azure credentials
+        gitleaks detect --source="$(Build.SourcesDirectory)" --verbose --redact --report-path="$(Build.ArtifactStagingDirectory)/gitleaks-report.json"
+        
+        EXIT_CODE=$?
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "##vso[task.logissue type=error]Gitleaks detected sensitive credentials in repository commits!"
+          exit 1
+        fi
+        echo "Gitleaks validation passed: Zero secrets detected."
+
+  - task: PublishBuildArtifacts@1
+    displayName: "Publish Gitleaks Report"
+    condition: always()
+    inputs:
+      PathtoPublish: "$(Build.ArtifactStagingDirectory)/gitleaks-report.json"
+      ArtifactName: "SecurityReports"
+      publishLocation: "Container"

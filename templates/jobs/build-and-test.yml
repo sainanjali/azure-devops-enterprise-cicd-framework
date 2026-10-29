@@ -1,0 +1,60 @@
+parameters:
+  - name: buildConfiguration
+    type: string
+    default: "Release"
+  - name: runTests
+    type: boolean
+    default: true
+
+jobs:
+  - job: CompileAndTest
+    displayName: "Compile, Lint & Unit Test"
+    pool:
+      vmImage: "ubuntu-latest"
+
+    steps:
+      - task: NodeTool@0
+        displayName: "Install Node.js v18.x"
+        inputs:
+          versionSpec: "18.x"
+
+      - task: Cache@2
+        displayName: "Cache npm Packages"
+        inputs:
+          key: 'npm | "$(Agent.OS)" | package-lock.json'
+          restoreKeys: |
+            npm | "$(Agent.OS)"
+          path: $(HOME)/.npm
+
+      - task: Npm@1
+        displayName: "Install Dependencies"
+        inputs:
+          command: "ci"
+
+      - task: Npm@1
+        displayName: "Run ESLint Code Quality"
+        inputs:
+          command: "custom"
+          customCommand: "run lint --if-present"
+
+      - ${{ if eq(parameters.runTests, true) }}:
+        - task: Npm@1
+          displayName: "Run Unit Tests with Coverage"
+          inputs:
+            command: "custom"
+            customCommand: "run test -- --ci --coverage --reporters=default --reporters=jest-junit"
+          env:
+            CI: "true"
+
+        - task: PublishTestResults@2
+          displayName: "Publish Unit Test Results"
+          condition: always()
+          inputs:
+            testResultsFormat: "JUnit"
+            testResultsFiles: "**/junit.xml"
+
+        - task: PublishCodeCoverageResults@2
+          displayName: "Publish Code Coverage Report"
+          condition: always()
+          inputs:
+            summaryFileLocation: "$(System.DefaultWorkingDirectory)/**/cobertura-coverage.xml"

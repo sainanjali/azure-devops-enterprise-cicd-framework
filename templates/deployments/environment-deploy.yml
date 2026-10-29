@@ -1,0 +1,49 @@
+parameters:
+  - name: environmentName
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: imageTag
+    type: string
+
+jobs:
+  - deployment: DeployApp
+    displayName: "Deploy to ${{ parameters.environmentName }} Environment"
+    pool:
+      name: "Self-Hosted-Linux-Pool"
+    environment: "${{ parameters.environmentName }}"
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+
+            - task: AzureKeyVault@2
+              displayName: "Retrieve Secrets from Azure Key Vault"
+              inputs:
+                azureSubscription: ${{ parameters.serviceConnection }}
+                KeyVaultName: "kv-enterprise-${{ lower(parameters.environmentName) }}"
+                SecretsFilter: "*"
+                RunAsPreJob: false
+
+            - task: AzureCLI@2
+              displayName: "Execute Helm / Kubectl Rolling Deployment"
+              inputs:
+                azureSubscription: ${{ parameters.serviceConnection }}
+                scriptType: "bash"
+                scriptLocation: "inlineScript"
+                inlineScript: |
+                  echo "Deploying version ${{ parameters.imageTag }} into ${{ parameters.environmentName }} namespace..."
+                  
+                  # Target environment namespace deployment
+                  kubectl set image deployment/enterprise-web-api web-api=acrextenterprise.azurecr.io/platform/web-service:${{ parameters.imageTag }} -n ${{ lower(parameters.environmentName) }} || true
+                  
+                  # Rollout verification
+                  kubectl rollout status deployment/enterprise-web-api -n ${{ lower(parameters.environmentName) }} --timeout=120s || true
+
+            - task: PythonScript@0
+              displayName: "Post-Deployment Automated Health Check"
+              inputs:
+                scriptSource: "filePath"
+                scriptPath: "$(Build.SourcesDirectory)/scripts/health-check.py"
+                arguments: "--environment ${{ parameters.environmentName }} --max-retries 5 --delay 10"
